@@ -1,7 +1,7 @@
 mod register;
 mod cpu;
 mod opcode;
-mod memory;
+mod mmu;
 mod interupt;
 mod timer;
 
@@ -11,7 +11,7 @@ fn main() {
     let rom = std::fs::read("rom").unwrap();
     let mut cpu = CPU::new();
     cpu.load_rom(&rom);
-    cpu.memory.stub();
+    cpu.mmu.stub();
     loop {
         cpu.tick();
     }

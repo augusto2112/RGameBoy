@@ -1,17 +1,16 @@
-use crate::cpu::FLAG;
 use crate::interupt::Interrupt;
 use crate::timer::Timer;
 
-pub struct Memory {
+pub struct MMU {
     memory: [u8; 0x10000],
     timer: Timer,
     interrupt_e: u8,
     interrupt_f: u8,
 }
 
-impl Memory {
+impl MMU {
     pub fn new() -> Self {
-        Memory {
+        MMU {
            memory: [0; 0x10000],
            interrupt_e: 0,
            interrupt_f: 0,
@@ -22,30 +21,21 @@ impl Memory {
     pub fn read_memory(&self, address: u16) -> u8 {
         match address {
             0xFF04 ..= 0xFF07 => self.timer.read_byte(address),
-            0xFF0F => self.interrupt_f,
+            0xFF0F =>
+                self.interrupt_f,
             0xFFFF => self.interrupt_e,
             _ => self.memory[address as usize]
         }
     }
 
     pub fn write_memory(&mut self, address: u16, value: u8) {
-        if FLAG {
-            match address {
-                0xFF04 ..= 0xFF07 =>
-                    self.timer.write_byte(address, value),
-                0xFF0F => self.interrupt_f = value,
-                0xFFFF => self.interrupt_e = value,
-                _ => self.memory[address as usize] = value
-            }
-        } else {
-            match address {
-                0xFF01 => print!("{}", value as char),
-                0xFF04 ..= 0xFF07 =>
-                    self.timer.write_byte(address, value),
-                0xFF0F => self.interrupt_f = value,
-                0xFFFF => self.interrupt_e = value,
-                _ => self.memory[address as usize] = value
-            }
+        match address {
+            0xFF01 => print!("{}", value as char),
+            0xFF04 ..= 0xFF07 =>
+                self.timer.write_byte(address, value),
+            0xFF0F => self.interrupt_f = value,
+            0xFFFF => self.interrupt_e = value,
+            _ => self.memory[address as usize] = value
         }
     }
 
@@ -53,9 +43,14 @@ impl Memory {
         for (i, byte) in rom.iter().enumerate() {
             self.memory[i] = *byte;
         }
-        // println!("{}", self.memory[65348]);
     }
 
+    pub fn is_interrupt_waiting(&self) -> bool {
+        match self.get_first_active_interrupt() {
+            Some(_) => true,
+            None => false
+        }
+    }
     pub fn get_first_active_interrupt(&self) -> Option<Interrupt> {
         Interrupt::first_from(self.interrupt_e & self.interrupt_f)
     }

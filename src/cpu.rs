@@ -1,39 +1,40 @@
 use Option::{Some, None};
 use crate::register::{Registers, CPUFlag};
 use crate::opcode::Opcode;
-use crate::memory::Memory;
+use crate::mmu::MMU;
 
 pub struct CPU {
     registers: Registers,
-    pub memory: Memory,
+    pub mmu: MMU,
     ime: bool,
     ime_timer: u8,
+    low_power_mode: bool
 }
-
-static mut aaa: u32 = 0;
-pub static FLAG: bool = false;
-static START: u32 = 0;
-static OFFSET: u32 = 161503;
 
 impl CPU {
     pub fn new() -> CPU {
         Self {
             registers: Registers::new(),
-            memory: Memory::new(),
+            mmu: MMU::new(),
             ime: false,
             ime_timer: 0,
+            low_power_mode: false
         }
     }
 
     pub fn load_rom(&mut self, rom: &[u8]) {
-        self.memory.load_rom(rom)
+        self.mmu.load_rom(rom)
     }
 
     pub fn tick(&mut self) {
         self.update_timers();
-        self.handle_interrupts();
-        let elapsed = self.execute();
-        self.memory.tick(elapsed);
+        self.handle_interrupt();
+        let elapsed = if self.low_power_mode {
+            1
+        } else {
+            self.execute()
+        };
+        self.mmu.tick(elapsed);
     }
 
     fn update_timers(&mut self) {
@@ -45,23 +46,24 @@ impl CPU {
         }
     }
 
-    fn handle_interrupts(&mut self) -> i32 {
-        if !self.ime { return 0; }
+    fn handle_interrupt(&mut self) -> i32 {
+        if !self.ime && !self.low_power_mode { return 0; }
 
-        match self.memory.get_first_active_interrupt() {
-            None => 0,
-            Some(interrupt) => {
-                self.ime = false;
-                self.memory.clear_interrupt(&interrupt);
-                self.push_stack(self.registers.pc);
-                self.registers.pc = interrupt as u16;
-                4
-            }
-        }
+        if !self.mmu.is_interrupt_waiting() { return 0; }
+        self.low_power_mode = false;
+
+        if !self.ime { return 0; }
+        self.ime = false;
+
+        let interrupt = self.mmu.get_first_active_interrupt().unwrap();
+        self.mmu.clear_interrupt(&interrupt);
+        self.push_stack(self.registers.pc);
+        self.registers.pc = interrupt as u16;
+        4
     }
 
     fn fetch_byte(&mut self) -> u8 {
-        let value = self.memory.read_memory(self.registers.pc);
+        let value = self.mmu.read_memory(self.registers.pc);
         self.registers.pc = self.registers.pc.wrapping_add(1);
         value
     }
@@ -81,11 +83,11 @@ impl CPU {
         if addr == 0x02DD || addr == 0xDD02 {
             print!("")
         }
-        self.memory.write_memory(addr, value)
+        self.mmu.write_memory(addr, value)
     }
 
     fn read_memory(&self, addr: u16) -> u8 {
-        self.memory.read_memory(addr)
+        self.mmu.read_memory(addr)
     }
 
     fn set_flags(&mut self, z: Option<bool>, n: Option<bool>, h: Option<bool>, c: Option<bool>) {
@@ -270,23 +272,6 @@ impl CPU {
     }
 
     fn execute(&mut self) -> u32 {
-        unsafe {
-            if FLAG {
-                if aaa >= START {
-                    println!("{}{}", self.registers, self.memory_string());
-                    // println!("{:02X}", opcode.as_byte());
-                }
-
-                if aaa == START + OFFSET {
-                    panic!()
-                }
-                if aaa == START + 6550 {
-                    print!("");
-                }
-                aaa += 1;
-            }
-        }
-
         let opcode = Opcode::from(self.fetch_byte());
 
         match opcode {
@@ -363,7 +348,7 @@ impl CPU {
                 self.registers.set_flag(CPUFlag::Z, false);
                 1
             }
-            Opcode::STOP => { 7 }
+            Opcode::STOP => { 0 }
             Opcode::LD_DE_d16 => {
                 let (lower, upper) = self.fetch_split_word();
                 self.registers.d = upper;
@@ -833,7 +818,10 @@ impl CPU {
                 self.write_memory(self.registers.hl(), self.registers.l);
                 2
             }
-            Opcode::HALT => { unimplemented!() }
+            Opcode::HALT => {
+                self.low_power_mode = true;
+                1
+            }
             Opcode::LD_rHL_A => {
                 self.write_memory(self.registers.hl(), self.registers.a);
                 2
@@ -1448,13 +1436,6 @@ impl CPU {
     }
     fn execute_extended(&mut self) -> u32 {
         let opcode = Opcode::from_extended(self.fetch_byte());
-        // unsafe {
-        //     if FLAG && aaa > START{
-        //         println!("{}", self.registers);
-        //         println!("Extended {:02X}", opcode.as_byte());
-        //     }
-        // }
-
         match opcode {
             Opcode::RLC_B => {
                 self.registers.b = self.rotate_left(self.registers.b);

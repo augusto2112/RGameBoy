@@ -33,7 +33,7 @@ impl Timer {
     pub fn write_byte(&mut self, address: u16, value: u8) {
         match address {
             0xFF04 =>
-                self.divider_register = value,
+                self.divider_register = 0,
             0xFF05 =>
                 self.timer_counter = value,
             0xFF06 =>
@@ -54,7 +54,11 @@ impl Timer {
             let (updated, overflow) = self.timer_counter.overflowing_add((self.internal_counter / self.get_speed()) as u8);
             self.internal_counter %= self.get_speed();
 
-            self.timer_counter = if overflow { self.timer_modulo } else { updated };
+            self.timer_counter = if overflow {
+                self.timer_modulo + self.internal_counter as u8
+            } else {
+                updated
+            };
 
             if overflow {
                 return true
@@ -70,8 +74,8 @@ impl Timer {
     fn get_speed(&self) -> u32 {
         match self.timer_control & 0b11 {
             0b00 => 256,
-            0b01 => 16,
-            0b10 => 4,
+            0b01 => 4,
+            0b10 => 16,
             0b11 => 64,
             _ => unreachable!()
         }
