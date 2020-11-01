@@ -12,18 +12,14 @@ pub struct CPU {
 }
 
 impl CPU {
-    pub fn new() -> CPU {
+    pub fn new(rom: &[u8]) -> CPU {
         Self {
             registers: Registers::new(),
-            mmu: MMU::new(),
+            mmu: MMU::new(rom),
             ime: false,
             ime_timer: 0,
             low_power_mode: false
         }
-    }
-
-    pub fn load_rom(&mut self, rom: &[u8]) {
-        self.mmu.load_rom(rom)
     }
 
     pub fn tick(&mut self) {
